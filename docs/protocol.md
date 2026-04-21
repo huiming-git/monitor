@@ -1,259 +1,445 @@
-# Monitor 统一通讯协议 v1.0
+# Monitor 嵌入式设备对接协议 v1.1
 
-本文档定义了 Monitor 上位机与嵌入式设备之间的通讯协议。任何设备只要按照此协议通过串口（USB CDC / UART）发送数据，即可接入 Monitor 进行实时姿态可视化。
+## 概述
+
+Monitor 是一个通用姿态可视化上位机，通过串口（USB CDC / UART）与嵌入式设备通讯。设备端只需按照本协议发送数据帧，即可在上位机实现：
+
+- 3D 姿态实时渲染
+- 欧拉角 / 四元数 / 角速度数据面板
+- 波形图
+- 实时轨迹估算（需同时发送姿态帧和原始帧）
+
+**最小对接只需实现两个函数：`crc16()` 和 `send_frame()`，然后周期性调用 `send_attitude()`。**
+
+---
 
 ## 1. 物理层
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| 接口 | USB CDC 虚拟串口 | 也支持物理 UART + USB 转串口 |
-| 波特率 | 115200 | 上位机可选，设备端需匹配 |
+| 参数 | 值 | 备注 |
+|------|-----|------|
+| 接口 | USB CDC / UART | 上位机自动扫描 USB 设备 |
+| 波特率 | 115200 (默认) | 上位机可选 9600~921600 |
 | 数据位 | 8 | |
 | 停止位 | 1 | |
-| 校验位 | None | |
-| 字节序 | Little-Endian | 所有多字节数据均为小端 |
+| 校验 | None | |
+| 字节序 | **Little-Endian** | 所有多字节字段 |
+
+---
 
 ## 2. 帧格式
 
-所有数据以帧为单位传输，帧格式如下：
-
 ```
-┌────────┬──────┬──────┬─────────────┬───────┐
-│ Header │ Type │ Len  │   Payload   │ CRC16 │
-│ 2 byte │ 1 B  │ 1 B  │   Len byte  │ 2 B   │
-│ AA 55  │      │      │             │       │
-└────────┴──────┴──────┴─────────────┴───────┘
+字节偏移:  0     1     2      3       4 ... 4+N-1    4+N   5+N
+         ┌─────┬─────┬──────┬───────┬─────────────┬──────┬──────┐
+         │ 0xAA│ 0x55│ Type │  Len  │   Payload   │CRC_L │CRC_H │
+         └─────┴─────┴──────┴───────┴─────────────┴──────┴──────┘
+          ← Header →                                ← CRC16 →
 ```
 
-| 字段 | 偏移 | 长度 | 说明 |
+| 字段 | 偏移 | 大小 | 说明 |
 |------|------|------|------|
-| Header | 0 | 2 | 固定 `0xAA 0x55`，用于帧同步 |
-| Type | 2 | 1 | 帧类型，见下方定义 |
-| Len | 3 | 1 | Payload 长度（字节数），不含 Header/Type/Len/CRC |
-| Payload | 4 | Len | 数据内容，格式取决于 Type |
-| CRC16 | 4+Len | 2 | 校验范围：Header ~ Payload（不含 CRC 自身），小端存储 |
+| Header | 0 | 2B | 固定 `0xAA 0x55` |
+| Type | 2 | 1B | 帧类型 |
+| Len | 3 | 1B | Payload 字节数 (0~255) |
+| Payload | 4 | Len | 内容由 Type 决定 |
+| CRC16 | 4+Len | 2B | 校验 [0 ~ 3+Len]，小端 |
 
-**单帧最大长度：** 4 (头) + 255 (Payload) + 2 (CRC) = 261 字节
+---
 
-## 3. CRC16 算法
+## 3. CRC16
 
-CRC-16/MODBUS，多项式 `0xA001`，初值 `0xFFFF`。
+CRC-16/MODBUS。多项式 `0xA001`，初值 `0xFFFF`。
 
 ```c
-uint16_t crc16(const uint8_t *data, uint16_t len) {
+uint16_t crc16(const uint8_t *data, uint16_t len)
+{
     uint16_t crc = 0xFFFF;
     for (uint16_t i = 0; i < len; i++) {
         crc ^= data[i];
-        for (uint8_t j = 0; j < 8; j++) {
-            if (crc & 1)
-                crc = (crc >> 1) ^ 0xA001;
-            else
-                crc >>= 1;
-        }
+        for (uint8_t j = 0; j < 8; j++)
+            crc = (crc & 1) ? (crc >> 1) ^ 0xA001 : crc >> 1;
     }
     return crc;
 }
 ```
 
-## 4. 帧类型定义
+---
 
-### 4.1 姿态数据帧 `TYPE = 0x01`
+## 4. 帧类型
 
-设备 → 上位机。包含姿态解算结果和角速度。
+| Type | 方向 | 名称 | Payload | 必须 |
+|------|------|------|---------|------|
+| `0x01` | 设备→上位机 | 姿态帧 | 28B | **是** |
+| `0x02` | 设备→上位机 | 原始 IMU 帧 | 24B | 可选 |
+| `0x10` | 设备→上位机 | 设备信息帧 | 24B | 推荐 |
+| `0x20` | 上位机→设备 | 配置帧 | 4B | 可选 |
+| `0x21` | 设备→上位机 | 配置应答帧 | 3B | 可选 |
 
-**Payload 长度：28 字节**
+### 4.1 姿态帧 `0x01` (28B) — 必须
 
-| 偏移 | 长度 | 类型 | 字段 | 说明 |
+上位机据此渲染 3D 模型、计算欧拉角、显示角速度。
+
+| 偏移 | 类型 | 字段 | 单位 | 说明 |
 |------|------|------|------|------|
-| 0 | 4 | float32 | q0 (w) | 四元数标量部分 |
-| 4 | 4 | float32 | q1 (x) | 四元数 x |
-| 8 | 4 | float32 | q2 (y) | 四元数 y |
-| 12 | 4 | float32 | q3 (z) | 四元数 z |
-| 16 | 4 | float32 | gx | 角速度 X，单位 rad/s |
-| 20 | 4 | float32 | gy | 角速度 Y，单位 rad/s |
-| 24 | 4 | float32 | gz | 角速度 Z，单位 rad/s |
+| 0 | float32 | q0 | - | 四元数 w (标量) |
+| 4 | float32 | q1 | - | 四元数 x |
+| 8 | float32 | q2 | - | 四元数 y |
+| 12 | float32 | q3 | - | 四元数 z |
+| 16 | float32 | gx | rad/s | 角速度 X |
+| 20 | float32 | gy | rad/s | 角速度 Y |
+| 24 | float32 | gz | rad/s | 角速度 Z |
 
-**四元数约定：**
-- 单位四元数，满足 q0² + q1² + q2² + q3² = 1
-- q0 为标量 (w)，q1/q2/q3 为矢量 (x/y/z)
-- 表示从 body 坐标系到 world 坐标系的旋转
+**四元数要求：**
+- 单位四元数 `q0² + q1² + q2² + q3² = 1`
+- 表示 body → world 旋转
+- q0 (w) 在前
 
-**欧拉角换算（上位机计算）：**
+**上位机自动计算欧拉角：**
 ```
 roll  = atan2(2(q0·q1 + q2·q3), 1 - 2(q1² + q2²))
-pitch = asin(2(q0·q2 - q3·q1))
+pitch = asin(clamp(2(q0·q2 - q3·q1), -1, 1))
 yaw   = atan2(2(q0·q3 + q1·q2), 1 - 2(q2² + q3²))
 ```
 
-### 4.2 原始 IMU 数据帧 `TYPE = 0x02`
+### 4.2 原始 IMU 帧 `0x02` (24B) — 可选
 
-设备 → 上位机。原始传感器数据，未经解算。
+用于波形图显示原始传感器数据，以及轨迹估算。
+**轨迹功能需要同时发送 0x01 和 0x02。**
 
-**Payload 长度：24 字节**
+| 偏移 | 类型 | 字段 | 单位 |
+|------|------|------|------|
+| 0 | float32 | ax | m/s² |
+| 4 | float32 | ay | m/s² |
+| 8 | float32 | az | m/s² |
+| 12 | float32 | gx | rad/s |
+| 16 | float32 | gy | rad/s |
+| 20 | float32 | gz | rad/s |
 
-| 偏移 | 长度 | 类型 | 字段 | 说明 |
-|------|------|------|------|------|
-| 0 | 4 | float32 | ax | 加速度 X，单位 m/s² |
-| 4 | 4 | float32 | ay | 加速度 Y，单位 m/s² |
-| 8 | 4 | float32 | az | 加速度 Z，单位 m/s² |
-| 12 | 4 | float32 | gx | 角速度 X，单位 rad/s |
-| 16 | 4 | float32 | gy | 角速度 Y，单位 rad/s |
-| 20 | 4 | float32 | gz | 角速度 Z，单位 rad/s |
+**坐标系约定（静止水平放置时）：**
+- az ≈ +9.81 (Z 轴朝上)
+- ax ≈ 0, ay ≈ 0
 
-### 4.3 设备信息帧 `TYPE = 0x10`
+### 4.3 设备信息帧 `0x10` (24B) — 推荐
 
-设备 → 上位机。设备连接后主动发送一次，用于上位机识别设备。
+上电后发送一次。上位机据此在设备列表中显示设备名称。
 
-**Payload 长度：可变（最大 64 字节）**
+| 偏移 | 类型 | 字段 | 说明 |
+|------|------|------|------|
+| 0 | uint8 | protocol_ver | 协议版本，填 `0x01` |
+| 1 | uint8 | device_type | 见设备类型表 |
+| 2 | uint16 | sample_rate | 采样率 Hz |
+| 4 | char[16] | device_name | UTF-8，不足补 `0x00` |
+| 20 | uint32 | firmware_ver | `(major<<16)\|(minor<<8)\|patch` |
 
-| 偏移 | 长度 | 类型 | 字段 | 说明 |
-|------|------|------|------|------|
-| 0 | 1 | uint8 | protocol_ver | 协议版本，当前为 `0x01` |
-| 1 | 1 | uint8 | device_type | 设备类型（见下表） |
-| 2 | 2 | uint16 | sample_rate | 采样率 Hz |
-| 4 | 16 | char[16] | device_name | 设备名称，UTF-8，不足补 0x00 |
-| 20 | 4 | uint32 | firmware_ver | 固件版本 major.minor.patch 打包为 `(major<<16)|(minor<<8)|patch` |
-
-**设备类型 device_type：**
+**设备类型表：**
 
 | 值 | 设备 |
 |----|------|
-| 0x01 | DM_MC02 H7 (STM32H723 + BMI088) |
-| 0x02 | 通用 STM32 + MPU6050 |
-| 0x03 | 通用 STM32 + ICM42688 |
-| 0x04 | ESP32 + BMI270 |
-| 0x10 | 通用设备（仅发送姿态帧） |
-| 0xFF | 未知 |
+| `0x01` | DM_MC02 H7 (STM32H723 + BMI088) |
+| `0x02` | STM32 + MPU6050 |
+| `0x03` | STM32 + ICM42688 |
+| `0x04` | ESP32 + BMI270 |
+| `0x10` | 通用设备 |
+| `0xFF` | 未知 |
 
-新设备接入时自行选取或申请一个 device_type 值。
+### 4.4 配置帧 `0x20` (4B) — 可选
 
-### 4.4 配置帧 `TYPE = 0x20`
+上位机 → 设备。设备可以不实现，忽略即可。
 
-上位机 → 设备。用于运行时调整设备参数。
+| 偏移 | 类型 | 字段 |
+|------|------|------|
+| 0 | uint8 | config_id |
+| 1 | uint8 | reserved (0) |
+| 2 | uint16 | value |
 
-**Payload 长度：4 字节**
+| config_id | 配置项 | value |
+|-----------|--------|-------|
+| `0x01` | 采样率 | Hz (100/200/500/1000) |
+| `0x02` | 数据模式 | 0=姿态, 1=原始, 2=全部 |
+| `0x03` | LED 控制 | 0=关, 1=开 |
 
-| 偏移 | 长度 | 类型 | 字段 | 说明 |
-|------|------|------|------|------|
-| 0 | 1 | uint8 | config_id | 配置项 ID |
-| 1 | 1 | uint8 | reserved | 保留，填 0 |
-| 2 | 2 | uint16 | value | 配置值 |
+### 4.5 配置应答帧 `0x21` (3B) — 可选
 
-**config_id 定义：**
+| 偏移 | 类型 | 字段 |
+|------|------|------|
+| 0 | uint8 | config_id |
+| 1 | uint8 | result: 0=OK, 1=不支持, 2=参数无效 |
+| 2 | uint8 | reserved (0) |
 
-| ID | 配置项 | value 含义 |
-|----|--------|-----------|
-| 0x01 | 采样率 | Hz (100 / 200 / 500 / 1000) |
-| 0x02 | 数据模式 | 0=姿态帧, 1=原始帧, 2=两者都发 |
-| 0x03 | LED | 0=关, 1=开 |
+---
 
-### 4.5 配置应答帧 `TYPE = 0x21`
+## 5. 对接步骤
 
-设备 → 上位机。对配置帧的应答。
-
-**Payload 长度：3 字节**
-
-| 偏移 | 长度 | 类型 | 字段 | 说明 |
-|------|------|------|------|------|
-| 0 | 1 | uint8 | config_id | 对应的配置项 ID |
-| 1 | 1 | uint8 | result | 0=成功, 1=不支持, 2=参数无效 |
-| 2 | 1 | uint8 | reserved | 保留 |
-
-## 5. 通讯流程
+### 最小对接（只要姿态显示）
 
 ```
-设备上电
-  │
-  ├─ USB CDC 枚举完成
-  │
-  ├─ 发送 设备信息帧 (0x10) ──→ 上位机识别设备，显示名称和类型
-  │
-  ├─ 开始周期性发送 姿态数据帧 (0x01) ──→ 上位机 3D 渲染 + 数据面板
-  │                 和/或 原始数据帧 (0x02) ──→ 上位机波形图
-  │
-  │  （可选）上位机发送 配置帧 (0x20) ──→ 设备调整参数
-  │          设备回复 应答帧 (0x21)  ──→ 上位机确认
-  │
-  └─ 断开连接
+1. 复制 crc16() 和 send_frame() 到你的工程
+2. 在主循环中：
+   - 读取 IMU 数据
+   - 运行姿态解算（Mahony / Madgwick / EKF）
+   - 调用 send_attitude(q, gyro) 发送
+3. 上位机连接即可看到 3D 模型旋转
 ```
 
-## 6. 接入新设备
+### 完整对接（姿态 + 轨迹 + 设备识别）
 
-接入一个新设备只需要：
+```
+1. 复制 crc16()、send_frame()、send_attitude()、send_raw_imu()、send_device_info()
+2. USB CDC 枚举完成后，调用 send_device_info() 一次
+3. 在主循环中同时调用：
+   - send_attitude(q, gyro)   → 姿态 + 角速度
+   - send_raw_imu(acc, gyro)  → 加速度 + 角速度（用于轨迹）
+4. （可选）解析收到的配置帧 0x20，回复 0x21
+```
 
-1. **实现 CRC16 和帧打包函数**（参考第 3 节）
-2. **上电后发送一帧设备信息帧** (0x10)
-3. **周期性发送姿态数据帧** (0x01)，推荐 100~500 Hz
-4. （可选）同时发送原始数据帧 (0x02)
-5. （可选）处理配置帧 (0x20) 并回复应答
+---
 
-### C 语言参考实现
+## 6. 完整 C 参考实现
+
+直接复制到你的嵌入式工程中使用。只需自行实现 `uart_send()`。
 
 ```c
+/*
+ * monitor_protocol.h — Monitor 上位机对接协议
+ * 复制此文件到你的嵌入式工程，实现 uart_send() 即可使用
+ */
+#ifndef MONITOR_PROTOCOL_H
+#define MONITOR_PROTOCOL_H
+
 #include <stdint.h>
 #include <string.h>
 
-#define FRAME_HEADER_0  0xAA
-#define FRAME_HEADER_1  0x55
-#define TYPE_ATTITUDE   0x01
-#define TYPE_RAW_IMU    0x02
-#define TYPE_DEVICE_INFO 0x10
+/* ---- 帧类型 ---- */
+#define MON_TYPE_ATTITUDE    0x01
+#define MON_TYPE_RAW_IMU     0x02
+#define MON_TYPE_DEVICE_INFO 0x10
+#define MON_TYPE_CONFIG      0x20
+#define MON_TYPE_CONFIG_ACK  0x21
 
-// 发送一帧数据（需自行实现 uart_send）
-void send_frame(uint8_t type, const uint8_t *payload, uint8_t len) {
+/* ---- 需要你实现的函数 ---- */
+extern void uart_send(const uint8_t *data, uint16_t len);
+
+/* ---- CRC16 ---- */
+static inline uint16_t mon_crc16(const uint8_t *data, uint16_t len)
+{
+    uint16_t crc = 0xFFFF;
+    for (uint16_t i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (uint8_t j = 0; j < 8; j++)
+            crc = (crc & 1) ? (crc >> 1) ^ 0xA001 : crc >> 1;
+    }
+    return crc;
+}
+
+/* ---- 发送一帧 ---- */
+static inline void mon_send_frame(uint8_t type, const uint8_t *payload, uint8_t len)
+{
     uint8_t buf[261];
-    buf[0] = FRAME_HEADER_0;
-    buf[1] = FRAME_HEADER_1;
+    buf[0] = 0xAA;
+    buf[1] = 0x55;
     buf[2] = type;
     buf[3] = len;
-    memcpy(&buf[4], payload, len);
-
-    uint16_t crc = crc16(buf, 4 + len);
-    buf[4 + len] = crc & 0xFF;
-    buf[5 + len] = (crc >> 8) & 0xFF;
-
+    if (len > 0) memcpy(&buf[4], payload, len);
+    uint16_t crc = mon_crc16(buf, 4 + len);
+    buf[4 + len] = (uint8_t)(crc & 0xFF);
+    buf[5 + len] = (uint8_t)(crc >> 8);
     uart_send(buf, 6 + len);
 }
 
-// 发送姿态帧
-void send_attitude(float q[4], float gyro[3]) {
-    uint8_t payload[28];
-    memcpy(&payload[0],  &q[0], 4);
-    memcpy(&payload[4],  &q[1], 4);
-    memcpy(&payload[8],  &q[2], 4);
-    memcpy(&payload[12], &q[3], 4);
-    memcpy(&payload[16], &gyro[0], 4);
-    memcpy(&payload[20], &gyro[1], 4);
-    memcpy(&payload[24], &gyro[2], 4);
-    send_frame(TYPE_ATTITUDE, payload, 28);
+/* ---- 发送姿态帧 (必须) ---- */
+static inline void mon_send_attitude(const float q[4], const float gyro[3])
+{
+    uint8_t p[28];
+    memcpy(&p[0],  &q[0], 4);     /* q0 (w) */
+    memcpy(&p[4],  &q[1], 4);     /* q1 (x) */
+    memcpy(&p[8],  &q[2], 4);     /* q2 (y) */
+    memcpy(&p[12], &q[3], 4);     /* q3 (z) */
+    memcpy(&p[16], &gyro[0], 4);  /* gx */
+    memcpy(&p[20], &gyro[1], 4);  /* gy */
+    memcpy(&p[24], &gyro[2], 4);  /* gz */
+    mon_send_frame(MON_TYPE_ATTITUDE, p, 28);
 }
 
-// 发送设备信息帧
-void send_device_info(void) {
-    uint8_t payload[24] = {0};
-    payload[0] = 0x01;            // protocol version
-    payload[1] = 0x01;            // device type: DM_MC02
-    payload[2] = 200 & 0xFF;     // sample rate low
-    payload[3] = (200 >> 8);     // sample rate high
-    strncpy((char *)&payload[4], "DM_MC02_H7", 16);
-    uint32_t fw = (1 << 16) | (0 << 8) | 0;  // v1.0.0
-    memcpy(&payload[20], &fw, 4);
-    send_frame(TYPE_DEVICE_INFO, payload, 24);
+/* ---- 发送原始 IMU 帧 (可选，轨迹功能需要) ---- */
+static inline void mon_send_raw_imu(const float acc[3], const float gyro[3])
+{
+    uint8_t p[24];
+    memcpy(&p[0],  &acc[0], 4);   /* ax */
+    memcpy(&p[4],  &acc[1], 4);   /* ay */
+    memcpy(&p[8],  &acc[2], 4);   /* az */
+    memcpy(&p[12], &gyro[0], 4);  /* gx */
+    memcpy(&p[16], &gyro[1], 4);  /* gy */
+    memcpy(&p[20], &gyro[2], 4);  /* gz */
+    mon_send_frame(MON_TYPE_RAW_IMU, p, 24);
+}
+
+/* ---- 发送设备信息帧 (推荐，上电调用一次) ---- */
+static inline void mon_send_device_info(
+    uint8_t device_type,
+    uint16_t sample_rate_hz,
+    const char *name,        /* 最长 16 字符 */
+    uint8_t fw_major,
+    uint8_t fw_minor,
+    uint8_t fw_patch)
+{
+    uint8_t p[24] = {0};
+    p[0] = 0x01;  /* protocol version */
+    p[1] = device_type;
+    p[2] = (uint8_t)(sample_rate_hz & 0xFF);
+    p[3] = (uint8_t)(sample_rate_hz >> 8);
+    strncpy((char *)&p[4], name, 16);
+    uint32_t fw = ((uint32_t)fw_major << 16) | ((uint32_t)fw_minor << 8) | fw_patch;
+    memcpy(&p[20], &fw, 4);
+    mon_send_frame(MON_TYPE_DEVICE_INFO, p, 24);
+}
+
+/* ---- 解析配置帧 (可选) ---- */
+typedef struct {
+    uint8_t  config_id;
+    uint16_t value;
+} mon_config_t;
+
+static inline int mon_parse_config(const uint8_t *payload, uint8_t len, mon_config_t *out)
+{
+    if (len < 4) return -1;
+    out->config_id = payload[0];
+    out->value = (uint16_t)payload[2] | ((uint16_t)payload[3] << 8);
+    return 0;
+}
+
+/* ---- 发送配置应答帧 (可选) ---- */
+static inline void mon_send_config_ack(uint8_t config_id, uint8_t result)
+{
+    uint8_t p[3] = { config_id, result, 0 };
+    mon_send_frame(MON_TYPE_CONFIG_ACK, p, 3);
+}
+
+#endif /* MONITOR_PROTOCOL_H */
+```
+
+---
+
+## 7. 使用示例
+
+### Zephyr RTOS (USB CDC)
+
+```c
+#include <zephyr/kernel.h>
+#include <zephyr/usb/usb_device.h>
+#include <zephyr/drivers/uart.h>
+#include "monitor_protocol.h"
+
+static const struct device *cdc_dev;
+
+void uart_send(const uint8_t *data, uint16_t len)
+{
+    for (uint16_t i = 0; i < len; i++) {
+        uart_poll_out(cdc_dev, data[i]);
+    }
+}
+
+int main(void)
+{
+    cdc_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
+    usb_enable(NULL);
+    k_sleep(K_SECONDS(2));
+
+    /* 上报设备信息 */
+    mon_send_device_info(0x01, 200, "DM_MC02_H7", 1, 0, 0);
+
+    float q[4] = {1, 0, 0, 0};
+    float gyro[3] = {0};
+    float acc[3] = {0, 0, 9.81f};
+
+    while (1) {
+        /* 读取 IMU、运行姿态解算... */
+        // imu_read(&acc, &gyro);
+        // attitude_update(acc, gyro, &q);
+
+        mon_send_attitude(q, gyro);
+        mon_send_raw_imu(acc, gyro);
+
+        k_sleep(K_MSEC(5));  /* 200 Hz */
+    }
 }
 ```
 
-## 7. 字节序示例
+### STM32 HAL (UART)
 
-以姿态帧为例，四元数 q0=1.0, q1=0, q2=0, q3=0，角速度全零：
+```c
+#include "monitor_protocol.h"
+
+extern UART_HandleTypeDef huart1;
+
+void uart_send(const uint8_t *data, uint16_t len)
+{
+    HAL_UART_Transmit(&huart1, (uint8_t *)data, len, 100);
+}
+
+/* 在你的主循环或 RTOS 任务中调用 */
+void monitor_task(void)
+{
+    mon_send_device_info(0x02, 100, "MY_BOARD", 1, 0, 0);
+
+    while (1) {
+        float q[4], gyro[3], acc[3];
+        /* 你的 IMU 读取和姿态解算 */
+        mon_send_attitude(q, gyro);
+        mon_send_raw_imu(acc, gyro);
+        HAL_Delay(10);  /* 100 Hz */
+    }
+}
+```
+
+### ESP-IDF (USB CDC / UART)
+
+```c
+#include "monitor_protocol.h"
+#include "driver/uart.h"
+
+void uart_send(const uint8_t *data, uint16_t len)
+{
+    uart_write_bytes(UART_NUM_0, data, len);
+}
+```
+
+---
+
+## 8. 字节序示例
+
+姿态帧，q0=1.0 其余为零：
 
 ```
-AA 55 01 1C                          ← Header + Type(0x01) + Len(28)
-00 00 80 3F                          ← q0 = 1.0 (IEEE 754 LE)
-00 00 00 00                          ← q1 = 0.0
-00 00 00 00                          ← q2 = 0.0
-00 00 00 00                          ← q3 = 0.0
-00 00 00 00                          ← gx = 0.0
-00 00 00 00                          ← gy = 0.0
-00 00 00 00                          ← gz = 0.0
-XX XX                                ← CRC16 (对前 32 字节计算)
+偏移  十六进制             说明
+----  -------------------  ----------------
+ 0    AA 55                帧头
+ 2    01                   Type = 姿态帧
+ 3    1C                   Len = 28
+ 4    00 00 80 3F          q0 = 1.0f (LE)
+ 8    00 00 00 00          q1 = 0.0f
+12    00 00 00 00          q2 = 0.0f
+16    00 00 00 00          q3 = 0.0f
+20    00 00 00 00          gx = 0.0f
+24    00 00 00 00          gy = 0.0f
+28    00 00 00 00          gz = 0.0f
+32    XX XX                CRC16 (对 [0..31] 计算)
 ```
+
+---
+
+## 9. 常见问题
+
+**Q: 最少需要实现什么？**
+A: 只需 `crc16()` + `mon_send_frame()` + `mon_send_attitude()`。把 `monitor_protocol.h` 复制到工程，实现 `uart_send()`，在主循环里每隔 5~10ms 调用一次 `mon_send_attitude()`。
+
+**Q: 上位机为什么收不到数据？**
+A: 检查：①波特率是否匹配 ②帧头是否为 `0xAA 0x55` ③CRC 是否正确 ④字节序是否为小端
+
+**Q: 轨迹功能为什么没有数据？**
+A: 轨迹需要同时发送 `0x01`（姿态帧）和 `0x02`（原始帧）。只发姿态帧没有加速度数据，无法积分位置。
+
+**Q: 发送频率多少合适？**
+A: 推荐 100~500 Hz。低于 50 Hz 姿态渲染会有卡顿感，高于 500 Hz 串口带宽可能不够（115200 波特率下约 400 帧/秒上限）。
+
+**Q: 不想实现设备信息帧可以吗？**
+A: 可以。上位机会用串口路径名代替设备名称。但推荐实现，方便多设备区分。
