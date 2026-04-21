@@ -34,13 +34,13 @@ export default function SerialPort({
   if (connected) {
     return (
       <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-1.5 px-2 py-1 text-[11px]">
+        <div className="flex items-center gap-2 px-2 py-1 text-[12px]">
           <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
           <span className="text-on-surface truncate font-medium">{currentPort}</span>
         </div>
         <button
           onClick={onDisconnect}
-          className="w-full py-1.5 rounded-md bg-surface-container-highest text-on-surface text-[11px] font-medium hover:bg-surface-container-high transition-colors"
+          className="w-full py-2 rounded-md bg-surface-container-highest text-on-surface text-[12px] font-medium hover:bg-surface-container-high transition-colors"
         >
           {lang.disconnect}
         </button>
@@ -49,11 +49,11 @@ export default function SerialPort({
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       <select
         value={selectedPort}
         onChange={(e) => setSelectedPort(e.target.value)}
-        className="w-full bg-surface-container-high border-none rounded-md py-1.5 px-2 text-[11px] text-on-surface focus:outline-none appearance-none cursor-pointer truncate"
+        className="w-full bg-surface-container-high border-none rounded-md py-2 px-2 text-[12px] text-on-surface focus:outline-none appearance-none cursor-pointer truncate"
       >
         {ports.length === 0 && <option value="">{lang.noPorts}</option>}
         {ports.map((p) => (
@@ -63,7 +63,7 @@ export default function SerialPort({
       <select
         value={baudRate}
         onChange={(e) => setBaudRate(Number(e.target.value))}
-        className="w-full bg-surface-container-high border-none rounded-md py-1.5 px-2 text-[11px] text-on-surface focus:outline-none appearance-none cursor-pointer"
+        className="w-full bg-surface-container-high border-none rounded-md py-2 px-2 text-[12px] text-on-surface focus:outline-none appearance-none cursor-pointer"
       >
         {BAUD_RATES.map((r) => (
           <option key={r} value={r}>{r}</option>
@@ -72,7 +72,7 @@ export default function SerialPort({
       <button
         onClick={() => onConnect(selectedPort, baudRate)}
         disabled={!selectedPort}
-        className="w-full py-1.5 rounded-md bg-gradient-to-br from-primary to-primary-container text-on-primary text-[11px] font-medium hover:opacity-90 transition-opacity disabled:opacity-40"
+        className="w-full py-2 rounded-md bg-gradient-to-br from-primary to-primary-container text-on-primary text-[12px] font-medium hover:opacity-90 transition-opacity disabled:opacity-40"
       >
         {lang.connect}
       </button>

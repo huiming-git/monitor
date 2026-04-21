@@ -15,15 +15,15 @@ function App() {
   return (
     <div className="flex h-screen overflow-hidden">
       {/* ── Sidebar ── */}
-      <nav className="flex flex-col bg-surface-container-low w-52 h-full py-4 px-3 shrink-0">
+      <nav className="flex flex-col bg-surface-container-low w-56 h-full py-5 px-4 shrink-0">
         {/* Brand */}
         <div className="flex items-center gap-2.5 px-2 mb-4">
           <div className="w-8 h-8 rounded-md bg-gradient-to-br from-primary to-primary-container text-on-primary flex items-center justify-center font-headline font-bold text-xs">
             M
           </div>
           <div className="flex-1 min-w-0">
-            <div className="font-headline text-on-surface font-bold text-[13px] leading-tight">{m.brand}</div>
-            <div className="text-on-surface-variant text-[11px]">{m.subtitle}</div>
+            <div className="font-headline text-on-surface font-bold text-[15px] leading-tight">{m.brand}</div>
+            <div className="text-on-surface-variant text-[12px]">{m.subtitle}</div>
           </div>
           {/* Lang toggle */}
           <button
@@ -50,7 +50,7 @@ function App() {
         <div className="flex-1" />
 
         {/* Status footer */}
-        <div className="flex items-center justify-between px-2 text-[11px] text-on-surface-variant">
+        <div className="flex items-center justify-between px-2 text-[12px] text-on-surface-variant">
           <span>{m.fps}</span>
           <span className="font-mono font-medium text-on-surface">{serial.fps}</span>
         </div>
@@ -71,17 +71,17 @@ function App() {
                 </div>
               )}
             </div>
-            <div className="h-48 shrink-0 bg-surface border-t border-outline-variant/10 px-4 py-2">
+            <div className="h-48 shrink-0 bg-surface border-t border-outline-variant/10 px-5 py-3">
               <WaveChart history={serial.attitudeHistory} lang={m} />
             </div>
           </div>
 
           {/* Right: Data Panel */}
-          <aside className="w-56 bg-surface-container-low h-full overflow-y-auto no-scrollbar shrink-0">
-            <div className="px-3 py-3 sticky top-0 bg-surface-container-low z-10">
-              <h2 className="font-headline text-[13px] font-bold text-on-surface">{m.data}</h2>
+          <aside className="w-60 bg-surface-container-low h-full overflow-y-auto no-scrollbar shrink-0">
+            <div className="px-4 py-4 sticky top-0 bg-surface-container-low z-10">
+              <h2 className="font-headline text-[14px] font-bold text-on-surface">{m.data}</h2>
             </div>
-            <div className="px-3 pb-4">
+            <div className="px-4 pb-5">
               <DataPanel
                 attitude={serial.attitude}
                 fps={serial.fps}

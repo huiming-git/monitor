@@ -19,10 +19,10 @@ export default function WaveChart({ history, lang }: { history: AttitudeData[]; 
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] font-semibold text-on-surface-variant uppercase tracking-wider">
+        <span className="text-[11px] font-semibold text-on-surface-variant uppercase tracking-wider">
           {lang.eulerWave}
         </span>
-        <div className="flex gap-3 text-[10px]">
+        <div className="flex gap-3 text-[11px]">
           <span className="text-roll">{lang.roll}</span>
           <span className="text-pitch">{lang.pitch}</span>
           <span className="text-yaw">{lang.yaw}</span>
