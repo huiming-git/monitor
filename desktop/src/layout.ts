@@ -5,15 +5,16 @@ import type { Messages } from "./i18n";
 const TAB_NAMES: Record<string, keyof Messages> = {
   "3d-viewer": "viewer3d",
   "waveform": "waveform",
+  "trajectory": "trajectory",
   "euler": "eulerAngles",
   "quaternion": "quaternion",
   "angular-velocity": "angularVelocity",
 };
 
-// 固定的英文 tab 名作为兜底
 const TAB_FALLBACK: Record<string, string> = {
   "3d-viewer": "3D Viewer",
   "waveform": "Waveform",
+  "trajectory": "Trajectory",
   "euler": "Euler Angles",
   "quaternion": "Quaternion",
   "angular-velocity": "Angular Velocity",
@@ -55,6 +56,7 @@ export function createLayout(lang: Messages): IJsonModel {
               weight: 70,
               children: [
                 { type: "tab", name: n("3d-viewer"), component: "3d-viewer" },
+                { type: "tab", name: n("trajectory"), component: "trajectory" },
               ],
             },
             {

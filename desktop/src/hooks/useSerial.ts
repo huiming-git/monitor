@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { SerialPort } from "tauri-plugin-serialplugin";
 import { FrameParser, type AttitudeData, type RawImuData } from "../protocol";
+import { TrajectoryEstimator, type TrajectoryPoint } from "../trajectory";
 
 interface PortEntry {
   path: string;
@@ -25,6 +26,7 @@ export interface SerialState {
   rawHistory: RawImuData[];
   fps: number;
   error: string | null;
+  trajectory: TrajectoryPoint[];
 }
 
 const MAX_HISTORY = 200;
@@ -43,9 +45,12 @@ export function useSerial() {
     rawHistory: [],
     fps: 0,
     error: null,
+    trajectory: [],
   });
 
   const parserRef = useRef(new FrameParser());
+  const trajRef = useRef(new TrajectoryEstimator(500));
+  const lastAttitudeRef = useRef<AttitudeData | null>(null);
   const portRef = useRef<SerialPort | null>(null);
   const frameCountRef = useRef(0);
   const fpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -101,6 +106,7 @@ export function useSerial() {
         for (const result of results) {
           frameCountRef.current++;
           if (result.type === "attitude") {
+            lastAttitudeRef.current = result.data;
             setState((s) => ({
               ...s,
               attitude: result.data,
@@ -110,14 +116,34 @@ export function useSerial() {
               ],
             }));
           } else {
-            setState((s) => ({
-              ...s,
-              rawImu: result.data,
-              rawHistory: [
-                ...s.rawHistory.slice(-MAX_HISTORY + 1),
-                result.data,
-              ],
-            }));
+            // 有加速度 + 姿态时计算轨迹
+            const att = lastAttitudeRef.current;
+            if (att) {
+              trajRef.current.update(
+                att.q0, att.q1, att.q2, att.q3,
+                result.data.ax, result.data.ay, result.data.az,
+                result.data.timestamp,
+              );
+              const trajectory = [...trajRef.current.getPoints()];
+              setState((s) => ({
+                ...s,
+                rawImu: result.data,
+                rawHistory: [
+                  ...s.rawHistory.slice(-MAX_HISTORY + 1),
+                  result.data,
+                ],
+                trajectory,
+              }));
+            } else {
+              setState((s) => ({
+                ...s,
+                rawImu: result.data,
+                rawHistory: [
+                  ...s.rawHistory.slice(-MAX_HISTORY + 1),
+                  result.data,
+                ],
+              }));
+            }
           }
         }
       }, false);
@@ -158,9 +184,12 @@ export function useSerial() {
       console.error("Disconnect error:", e);
     }
     connectedRef.current = false;
+    trajRef.current.reset();
+    lastAttitudeRef.current = null;
     setState((s) => ({
       ...s,
       connected: false,
+      trajectory: [],
       currentPort: "",
       activeDeviceId: "",
       fps: 0,

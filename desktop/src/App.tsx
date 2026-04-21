@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { Layout, Model, TabNode, IJsonModel, Actions } from "flexlayout-react";
 import "flexlayout-react/style/light.css";
 import Attitude3D from "./components/Attitude3D";
+import Trajectory3D from "./components/Trajectory3D";
 import { EulerPanel, QuaternionPanel, AngularVelocityPanel } from "./components/DataPanel";
 import WaveChart from "./components/WaveChart";
 import SerialPort from "./components/SerialPort";
@@ -86,6 +87,22 @@ function App() {
             )}
           </div>
         );
+      case "trajectory":
+        return (
+          <div className="w-full h-full bg-surface-container-low bg-grid-pattern relative">
+            <Trajectory3D points={serial.trajectory} />
+            {serial.trajectory.length > 0 && (
+              <div className="absolute top-3 right-3 glass rounded-md px-3 py-1.5 text-[11px] font-mono font-medium ambient-shadow-sm">
+                <span className="text-on-surface-variant">{serial.trajectory.length} pts</span>
+              </div>
+            )}
+            {serial.trajectory.length === 0 && (
+              <div className="absolute inset-0 flex items-center justify-center text-[12px] text-on-surface-variant pointer-events-none">
+                {lang === "zh" ? "等待 IMU 数据..." : "Waiting for IMU data..."}
+              </div>
+            )}
+          </div>
+        );
       case "waveform":
         return (
           <div className="w-full h-full bg-surface px-4 py-2">
@@ -113,7 +130,7 @@ function App() {
       default:
         return <div>Unknown: {component}</div>;
     }
-  }, [serial.attitude, serial.attitudeHistory, modelUrl, m]);
+  }, [serial.attitude, serial.attitudeHistory, serial.trajectory, modelUrl, m, lang]);
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ zoom: `${zoom}%` }}>
