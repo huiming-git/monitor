@@ -56,12 +56,51 @@ export function useSerial() {
   const fpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const connectedRef = useRef(false);
 
+  const processBytes = useCallback((bytes: Uint8Array) => {
+    const results = parserRef.current.feed(bytes);
+    for (const result of results) {
+      frameCountRef.current++;
+      if (result.type === "attitude") {
+        lastAttitudeRef.current = result.data;
+        setState((s) => ({
+          ...s,
+          attitude: result.data,
+          attitudeHistory: [
+            ...s.attitudeHistory.slice(-MAX_HISTORY + 1),
+            result.data,
+          ],
+        }));
+      } else {
+        const att = lastAttitudeRef.current;
+        if (att) {
+          trajRef.current.update(
+            att.q0, att.q1, att.q2, att.q3,
+            result.data.ax, result.data.ay, result.data.az,
+            result.data.timestamp,
+          );
+          const trajectory = [...trajRef.current.getPoints()];
+          setState((s) => ({
+            ...s,
+            rawImu: result.data,
+            rawHistory: [...s.rawHistory.slice(-MAX_HISTORY + 1), result.data],
+            trajectory,
+          }));
+        } else {
+          setState((s) => ({
+            ...s,
+            rawImu: result.data,
+            rawHistory: [...s.rawHistory.slice(-MAX_HISTORY + 1), result.data],
+          }));
+        }
+      }
+    }
+  }, []);
+
   const scanPorts = useCallback(async () => {
     try {
       const portsMap = await SerialPort.available_ports();
       const ports: PortEntry[] = Object.entries(portsMap)
         .filter(([path, info]) => {
-          // 只保留真实 USB 设备，过滤掉虚拟串口 /dev/ttyS*
           if (/\/dev\/ttyS\d+$/.test(path)) return false;
           if (path.startsWith("COM") || /ttyACM|ttyUSB|cu\.|tty\.usb/i.test(path)) return true;
           if (info.type !== "PCI" && info.vid !== "Unknown") return true;
@@ -77,7 +116,6 @@ export function useSerial() {
     }
   }, []);
 
-  // 自动扫描
   useEffect(() => {
     scanPorts();
     const id = setInterval(() => {
@@ -95,60 +133,39 @@ export function useSerial() {
       parserRef.current.reset();
       frameCountRef.current = 0;
 
+      // FPS counter
       fpsIntervalRef.current = setInterval(() => {
         setState((s) => ({ ...s, fps: frameCountRef.current }));
         frameCountRef.current = 0;
       }, 1000);
 
-      await port.listen((data: { data: number[] }) => {
-        const bytes = new Uint8Array(data.data);
-        const results = parserRef.current.feed(bytes);
-        for (const result of results) {
-          frameCountRef.current++;
-          if (result.type === "attitude") {
-            lastAttitudeRef.current = result.data;
-            setState((s) => ({
-              ...s,
-              attitude: result.data,
-              attitudeHistory: [
-                ...s.attitudeHistory.slice(-MAX_HISTORY + 1),
-                result.data,
-              ],
-            }));
-          } else {
-            // 有加速度 + 姿态时计算轨迹
-            const att = lastAttitudeRef.current;
-            if (att) {
-              trajRef.current.update(
-                att.q0, att.q1, att.q2, att.q3,
-                result.data.ax, result.data.ay, result.data.az,
-                result.data.timestamp,
-              );
-              const trajectory = [...trajRef.current.getPoints()];
-              setState((s) => ({
-                ...s,
-                rawImu: result.data,
-                rawHistory: [
-                  ...s.rawHistory.slice(-MAX_HISTORY + 1),
-                  result.data,
-                ],
-                trajectory,
-              }));
-            } else {
-              setState((s) => ({
-                ...s,
-                rawImu: result.data,
-                rawHistory: [
-                  ...s.rawHistory.slice(-MAX_HISTORY + 1),
-                  result.data,
-                ],
-              }));
+      // Use listen with raw binary mode via startListening
+      await port.listen((rawData: any) => {
+        try {
+          let bytes: Uint8Array;
+          if (rawData instanceof Uint8Array) {
+            bytes = rawData;
+          } else if (rawData?.data) {
+            // { data: number[] } format
+            bytes = new Uint8Array(rawData.data);
+          } else if (typeof rawData === 'string') {
+            // String: each char is one byte (Latin-1)
+            bytes = new Uint8Array(rawData.length);
+            for (let i = 0; i < rawData.length; i++) {
+              bytes[i] = rawData.charCodeAt(i) & 0xFF;
             }
+          } else {
+            console.warn("[serial] unknown data format:", typeof rawData, rawData);
+            return;
           }
+          processBytes(bytes);
+        } catch (e) {
+          console.error("[serial] process error:", e);
         }
-      }, false);
+      }, false); // false = binary mode
 
       await port.startListening();
+      console.log("[serial] listening started on", path);
 
       portRef.current = port;
       connectedRef.current = true;
@@ -167,7 +184,7 @@ export function useSerial() {
       console.error("Connect failed:", e);
       setState((s) => ({ ...s, error: msg }));
     }
-  }, []);
+  }, [processBytes]);
 
   const disconnect = useCallback(async () => {
     try {

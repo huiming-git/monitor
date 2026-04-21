@@ -49,6 +49,7 @@ function crc16(data: Uint8Array): number {
 }
 
 function readFloat32(buf: Uint8Array, offset: number): number {
+  if (offset + 4 > buf.length) return 0;
   const view = new DataView(buf.buffer, buf.byteOffset + offset, 4);
   return view.getFloat32(0, true); // little-endian
 }
@@ -127,7 +128,7 @@ export class FrameParser {
             az: readFloat32(payload, 8),
             gx: readFloat32(payload, 12),
             gy: readFloat32(payload, 16),
-            gz: readFloat32(payload, 24),
+            gz: readFloat32(payload, 20),
             timestamp: now,
           },
         });
