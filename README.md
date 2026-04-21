@@ -1,129 +1,133 @@
-# DM-H7 Attitude Monitor
+# Monitor — 嵌入式姿态可视化平台
 
-> 达妙H7开发板 (DM_MC02) 实时姿态显示仪
+开源的实时姿态显示系统，支持任何实现了 [Monitor 协议](docs/protocol.md) 的嵌入式设备接入。
 
-基于达妙 DM_MC02 H7 开发板的实时姿态可视化系统。板载 BMI088 IMU 采集加速度和角速度数据，经姿态解算后通过 USB 虚拟串口传输至上位机，桌面端以 3D 模型实时渲染姿态。
+上位机通过 USB 虚拟串口接收设备数据，3D 实时渲染姿态，显示欧拉角、四元数、角速度、波形图和运动轨迹。
 
-## 系统架构
-
-```
-┌─────────────────────┐     USB CDC      ┌──────────────────────────┐
-│   DM_MC02 H7 开发板  │ ──────────────→  │    Tauri 桌面应用         │
-│                     │   串口数据帧      │                          │
-│  BMI088 IMU (SPI2)  │                  │  ┌──────────────────────┐ │
-│         ↓           │                  │  │  3D 姿态渲染 (Three.js)│ │
-│  姿态解算 (Mahony)   │                  │  ├──────────────────────┤ │
-│         ↓           │                  │  │  实时数据仪表盘        │ │
-│  USB CDC 发送       │                  │  │  欧拉角 / 四元数 / 波形 │ │
-│                     │                  │  └──────────────────────┘ │
-└─────────────────────┘                  └──────────────────────────┘
-```
-
-## 功能规划
-
-### 固件端 (Zephyr RTOS)
-
-- [x] 板级支持 ([ctrboard-h7-zephyr-template](https://github.com/huiming-git/ctrboard-h7-zephyr-template))
-- [ ] BMI088 SPI 驱动 (加速度计 + 陀螺仪)
-- [ ] 姿态解算算法 (Mahony / Madgwick 互补滤波)
-- [ ] USB CDC 数据帧协议定义与发送
-- [ ] 可配置采样率 (100Hz / 200Hz / 500Hz)
-
-### 桌面端 (Tauri + React + R3F)
-
-- [ ] 串口连接管理 (自动扫描、连接、断开)
-- [ ] 数据帧解析
-- [ ] 3D 姿态渲染 (React Three Fiber 实时旋转模型)
-- [ ] 实时数据面板 (Roll / Pitch / Yaw 欧拉角显示)
-- [ ] 波形图 (加速度、角速度、欧拉角时序曲线)
-- [ ] 数据录制与回放 (CSV 导出)
-
-## 数据帧协议 (暂定)
-
-固件以固定帧格式通过 USB CDC 发送数据：
+## 效果
 
 ```
-| 帧头 (2B) | 类型 (1B) | 长度 (1B) | 数据 (NB)          | CRC16 (2B) |
-| 0xAA 0x55 | 0x01      | 28        | quat + gyro + acc  | CRC-16     |
+┌─────────────────────┐    USB CDC     ┌────────────────────────────────────┐
+│  嵌入式设备           │ ────────────→ │  Monitor 桌面端                     │
+│                     │   200Hz 帧     │                                    │
+│  IMU → 姿态解算      │               │  3D 模型实时旋转 │ 欧拉角/四元数     │
+│      → 协议打包      │               │  波形图          │ 角速度/轨迹       │
+│      → USB CDC 发送  │               │  多设备管理      │ 中英文切换        │
+└─────────────────────┘               └────────────────────────────────────┘
 ```
 
-姿态数据帧 (type=0x01, 28 bytes):
-- 四元数 q0, q1, q2, q3 (float32 x4 = 16B)
-- 角速度 gx, gy, gz (float32 x3 = 12B, 单位: rad/s)
+## 功能
 
-原始数据帧 (type=0x02, 24 bytes):
-- 加速度 ax, ay, az (float32 x3 = 12B, 单位: m/s^2)
-- 角速度 gx, gy, gz (float32 x3 = 12B, 单位: rad/s)
+### 桌面端
+
+- 3D 姿态实时渲染（React Three Fiber，四元数驱动，slerp 平滑）
+- 欧拉角 / 四元数 / 角速度数据面板
+- 欧拉角实时波形图（Recharts）
+- 运动轨迹 3D 估算（加速度二次积分）
+- 自定义 3D 模型上传（GLB/GLTF）
+- 串口自动扫描，过滤虚拟端口，只显示真实 USB 设备
+- VS Code 风格可拖拽面板布局（flexlayout-react）
+- 中英文一键切换，鸿蒙 HarmonyOS Sans 字体
+- 界面缩放（75%~200%）
+- 侧边栏宽度可拖拽
+- 重置布局按钮
+
+### 固件端（参考实现：DM_MC02 H7）
+
+- Zephyr RTOS 板级支持（STM32H723VGT6, 550MHz）
+- BMI088 六轴 IMU SPI 驱动
+- Mahony AHRS 姿态解算（200Hz）
+- 上电陀螺仪零偏标定（1000 次采样）
+- Monitor 协议 v1.0 帧打包 + USB CDC 发送
+- 同时发送姿态帧（0x01）和原始 IMU 帧（0x02）
 
 ## 技术栈
 
 | 层级 | 技术 | 说明 |
 |------|------|------|
-| 固件 RTOS | Zephyr 4.4 | 实时操作系统，驱动 SPI/USB |
-| 姿态解算 | Mahony Filter | 轻量级互补滤波，适合 Cortex-M7 |
-| 桌面框架 | Tauri 2.x | Rust 后端 + WebView 前端，轻量跨平台 |
-| 前端 | React 18 + TypeScript | 响应式 UI |
-| 3D 渲染 | React Three Fiber (R3F) | 声明式 Three.js，3D 姿态可视化 |
-| 串口通信 | tauri-plugin-serialplugin | Tauri 串口插件 |
-| 图表 | Recharts | 实时波形绘制 |
+| 桌面框架 | Tauri 2.x | Rust 后端 + WebView，轻量跨平台 |
+| 前端 | React 18 + TypeScript | UI 框架 |
+| 3D 渲染 | React Three Fiber + Drei | 声明式 Three.js |
+| 图表 | Recharts | 实时波形 |
+| 布局 | flexlayout-react | 可拖拽面板 |
+| 串口 | tauri-plugin-serialplugin | Tauri 串口插件 |
+| 样式 | Tailwind CSS 4 | Precision Gallery 设计系统 |
+| 字体 | HarmonyOS Sans SC | 鸿蒙中文字体 |
+| 固件 RTOS | Zephyr 4.4 | 实时操作系统 |
+| 姿态解算 | Mahony Filter | 互补滤波 |
+| 通讯协议 | Monitor Protocol v1.0 | CRC16 校验二进制帧 |
 
 ## 目录结构
 
 ```
-dm-h7-attitude-monitor/
-├── firmware/                # 固件工程 (Zephyr)
-│   ├── CMakeLists.txt
-│   ├── prj.conf
-│   ├── boards/              # 板级定义 (从模板引入)
-│   │   └── ctrboard_h7/
-│   └── src/
-│       ├── main.c           # 主任务
-│       ├── bmi088.c/h       # IMU 驱动
-│       ├── attitude.c/h     # 姿态解算
-│       └── protocol.c/h     # 串口协议
-│
-├── desktop/                 # 桌面应用 (Tauri)
-│   ├── src-tauri/           # Rust 后端
-│   │   └── src/
-│   │       └── main.rs
-│   ├── src/                 # React 前端
+monitor/
+├── desktop/                  # 桌面应用 (Tauri + React)
+│   ├── src/
 │   │   ├── components/
-│   │   │   ├── Attitude3D.tsx    # 3D 姿态渲染 (R3F)
-│   │   │   ├── DataPanel.tsx     # 数据面板
-│   │   │   ├── WaveChart.tsx     # 波形图
-│   │   │   └── SerialPort.tsx    # 串口管理
-│   │   ├── App.tsx
-│   │   └── main.tsx
+│   │   │   ├── Attitude3D.tsx      # 3D 姿态渲染
+│   │   │   ├── Trajectory3D.tsx    # 3D 轨迹渲染
+│   │   │   ├── DataPanel.tsx       # 数据面板
+│   │   │   ├── WaveChart.tsx       # 波形图
+│   │   │   └── SerialPort.tsx      # 串口管理
+│   │   ├── hooks/useSerial.ts      # 串口通信 hook
+│   │   ├── protocol.ts            # 协议帧解析
+│   │   ├── trajectory.ts          # 轨迹估算器
+│   │   ├── i18n.ts                # 国际化
+│   │   ├── layout.ts              # 面板布局定义
+│   │   ├── App.tsx / App.css       # 主界面
+│   │   └── assets/fonts/           # 鸿蒙字体
+│   ├── src-tauri/                  # Rust 后端
 │   ├── package.json
 │   └── tauri.conf.json
 │
-└── docs/                    # 文档
-    └── protocol.md          # 协议详细说明
+└── docs/
+    ├── protocol.md             # 通讯协议文档 v1.1
+    └── devlog.md               # 开发踩坑记录
 ```
-
-## 硬件需求
-
-- 达妙 DM_MC02 H7 开发板 (STM32H723VGT6)
-- DAPLink/CMSIS-DAP 调试器 (SWD 烧录)
-- USB 数据线 (连接板载 USB 口用于数据传输)
 
 ## 快速开始
 
-### 固件编译烧录
+### 环境要求
 
-```bash
-cd ~/zephyrproject
-west build -b ctrboard_h7 <本工程>/firmware -- -DBOARD_ROOT=<本工程>/firmware
-west flash
-```
+- Node.js 18+, pnpm
+- Rust 1.70+
+- Linux: `libwebkit2gtk-4.1-dev libgtk-3-dev`
 
-### 桌面应用启动
+### 启动桌面端
 
 ```bash
 cd desktop
 pnpm install
 pnpm tauri dev
 ```
+
+### 打包桌面端
+
+```bash
+pnpm tauri build
+```
+
+生成 deb / rpm / AppImage（Linux）或 dmg / msi（macOS / Windows）。
+
+### 固件编译烧录（Zephyr，需要 Zephyr SDK）
+
+```bash
+cd ~/zephyrproject
+west build -b ctrboard_h7 <固件工程路径> -- -DBOARD_ROOT=<固件工程路径>
+west flash
+```
+
+## 接入自己的设备
+
+任何设备只要实现 [Monitor 协议](docs/protocol.md)，就能接入本上位机：
+
+1. 实现 CRC16 和帧打包函数（协议文档里有 C 参考代码）
+2. 上电发送一帧设备信息帧（0x10）
+3. 周期性发送姿态帧（0x01），推荐 100~500Hz
+4. （可选）同时发送原始 IMU 帧（0x02），用于轨迹估算
+5. USB CDC 或 UART 连接电脑
+
+支持的设备类型见 [protocol.md](docs/protocol.md#43-设备信息帧-type--0x10)。
 
 ## License
 
