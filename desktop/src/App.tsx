@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback } from "react";
-import { Layout, Model, TabNode, IJsonModel } from "flexlayout-react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { Layout, Model, TabNode, IJsonModel, Actions } from "flexlayout-react";
 import "flexlayout-react/style/light.css";
 import Attitude3D from "./components/Attitude3D";
 import { EulerPanel, QuaternionPanel, AngularVelocityPanel } from "./components/DataPanel";
@@ -7,21 +7,34 @@ import WaveChart from "./components/WaveChart";
 import SerialPort from "./components/SerialPort";
 import { useSerial } from "./hooks/useSerial";
 import { t, type Lang } from "./i18n";
-import { defaultLayout } from "./layout";
+import { createLayout, tabName } from "./layout";
 import "./App.css";
 
 function App() {
   const serial = useSerial();
   const [lang, setLang] = useState<Lang>("zh");
+  const m = t(lang);
   const [zoom, setZoom] = useState(100);
   const [modelUrl, setModelUrl] = useState<string | null>(null);
-  const [model, setModel] = useState(() => Model.fromJson(defaultLayout as IJsonModel));
+  const [model, setModel] = useState(() => Model.fromJson(createLayout(m) as IJsonModel));
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // 语言切换时更新所有 tab 名称
+  useEffect(() => {
+    model.visitNodes((node) => {
+      if (node.getType() === "tab") {
+        const comp = (node as TabNode).getComponent();
+        if (comp) {
+          const newName = tabName(comp, m);
+          model.doAction(Actions.renameTab(node.getId(), newName));
+        }
+      }
+    });
+  }, [lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resetLayout = () => {
-    setModel(Model.fromJson(defaultLayout as IJsonModel));
+    setModel(Model.fromJson(createLayout(m) as IJsonModel));
   };
-  const fileRef = useRef<HTMLInputElement>(null);
-  const m = t(lang);
 
   const handleModelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
