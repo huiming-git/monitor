@@ -1,0 +1,23 @@
+# Rust / Tauri
+target/
+dist/
+
+# Node
+node_modules/
+.pnpm-store/
+
+# Firmware build
+firmware/build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
