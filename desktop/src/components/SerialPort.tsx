@@ -34,41 +34,31 @@ export default function SerialPort({
     return (
       <button
         onClick={onDisconnect}
-        className="w-full flex items-center justify-center gap-2 bg-surface-container-highest text-on-surface py-2.5 px-4 rounded font-body font-medium text-sm transition-colors hover:bg-surface-container-high"
+        className="w-full flex items-center justify-center gap-1.5 bg-surface-container-highest text-on-surface py-1.5 px-3 rounded-md text-[12px] font-medium transition-colors hover:bg-surface-container-high"
       >
-        <span className="icon text-sm">link_off</span>
+        <span className="icon !text-[14px]">link_off</span>
         {currentPort}
       </button>
     );
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      {/* Port select */}
-      <div className="relative">
-        <select
-          value={selectedPort}
-          onChange={(e) => setSelectedPort(e.target.value)}
-          className="w-full bg-surface-container-high border-none rounded py-2 pl-3 pr-8 text-xs font-body text-on-surface focus:outline-none focus:ring-0 appearance-none cursor-pointer"
-        >
-          {ports.length === 0 && <option value="">No ports</option>}
-          {ports.map((p) => (
-            <option key={p.path} value={p.path}>
-              {p.path}
-            </option>
-          ))}
-        </select>
-        <span className="icon text-sm absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">
-          expand_more
-        </span>
-      </div>
-
-      {/* Baud + Scan row */}
-      <div className="flex gap-1.5">
+    <div className="flex flex-col gap-1.5">
+      <select
+        value={selectedPort}
+        onChange={(e) => setSelectedPort(e.target.value)}
+        className="w-full bg-surface-container-high border-none rounded-md py-1.5 px-2.5 text-[11px] text-on-surface focus:outline-none appearance-none cursor-pointer"
+      >
+        {ports.length === 0 && <option value="">No ports</option>}
+        {ports.map((p) => (
+          <option key={p.path} value={p.path}>{p.path}</option>
+        ))}
+      </select>
+      <div className="flex gap-1">
         <select
           value={baudRate}
           onChange={(e) => setBaudRate(Number(e.target.value))}
-          className="flex-1 bg-surface-container-high border-none rounded py-1.5 pl-3 pr-6 text-xs font-body text-on-surface focus:outline-none focus:ring-0 appearance-none cursor-pointer"
+          className="flex-1 bg-surface-container-high border-none rounded-md py-1.5 px-2.5 text-[11px] text-on-surface focus:outline-none appearance-none cursor-pointer"
         >
           {BAUD_RATES.map((r) => (
             <option key={r} value={r}>{r}</option>
@@ -76,20 +66,18 @@ export default function SerialPort({
         </select>
         <button
           onClick={onScan}
-          className="px-2.5 py-1.5 rounded bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest transition-colors"
-          title="Scan"
+          className="px-1.5 py-1 rounded-md bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest transition-colors"
+          title="Refresh"
         >
-          <span className="icon text-sm">refresh</span>
+          <span className="icon !text-[14px]">refresh</span>
         </button>
       </div>
-
-      {/* Connect CTA */}
       <button
         onClick={() => onConnect(selectedPort, baudRate)}
         disabled={!selectedPort}
-        className="w-full flex items-center justify-center gap-2 bg-gradient-to-br from-primary to-primary-container text-on-primary py-2.5 px-4 rounded font-body font-medium text-sm hover:opacity-90 transition-opacity disabled:opacity-40"
+        className="w-full flex items-center justify-center gap-1.5 bg-gradient-to-br from-primary to-primary-container text-on-primary py-1.5 px-3 rounded-md text-[12px] font-medium hover:opacity-90 transition-opacity disabled:opacity-40"
       >
-        <span className="icon text-sm">link</span>
+        <span className="icon !text-[14px]">link</span>
         Connect
       </button>
     </div>

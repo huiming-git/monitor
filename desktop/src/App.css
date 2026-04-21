@@ -1,6 +1,5 @@
 @import "tailwindcss";
 
-/* ── Design System: Precision Gallery ── */
 @theme {
   --color-primary: #0058bc;
   --color-primary-container: #0070eb;
@@ -16,39 +15,31 @@
   --color-surface-container-highest: #e2e2e2;
   --color-outline: #717786;
   --color-outline-variant: #c1c6d7;
-  --color-error: #ba1a1a;
 
   --color-roll: #e53935;
   --color-pitch: #43a047;
   --color-yaw: #1e88e5;
 
-  --font-headline: "Manrope", sans-serif;
-  --font-body: "Inter", sans-serif;
-  --font-mono: "JetBrains Mono", monospace;
+  --font-headline: "Manrope", "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
-/* ── Base ── */
 body {
   font-family: var(--font-body);
+  font-size: 13px;
   background: var(--color-surface);
   color: var(--color-on-surface);
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
   margin: 0;
 }
 
-::selection {
-  background: var(--color-primary-container);
-  color: var(--color-on-primary);
-}
-
-/* ── Material Icons ── */
 .icon {
   font-family: "Material Symbols Outlined";
   font-weight: normal;
   font-style: normal;
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1;
   letter-spacing: normal;
   text-transform: none;
@@ -59,59 +50,21 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-.icon-filled {
-  font-variation-settings: "FILL" 1;
-}
-
-/* ── Ambient shadows (Design System rule) ── */
-.ambient-shadow {
-  box-shadow: 0 12px 32px rgba(26, 28, 28, 0.06);
-}
-
 .ambient-shadow-sm {
-  box-shadow: 0 4px 12px rgba(26, 28, 28, 0.03);
+  box-shadow: 0 1px 3px rgba(26, 28, 28, 0.04);
 }
 
-/* ── Glass ── */
 .glass {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(20px);
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(12px);
 }
 
-/* ── Grid pattern for 3D viewport ── */
 .bg-grid-pattern {
   background-size: 40px 40px;
   background-image:
-    linear-gradient(to right, #e8e8e8 1px, transparent 1px),
-    linear-gradient(to bottom, #e8e8e8 1px, transparent 1px);
+    linear-gradient(to right, #eaeaea 1px, transparent 1px),
+    linear-gradient(to bottom, #eaeaea 1px, transparent 1px);
 }
 
-/* ── No scrollbar ── */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-
-/* ── Recharts overrides for light theme ── */
-.recharts-cartesian-grid-horizontal line,
-.recharts-cartesian-grid-vertical line {
-  stroke: #e8e8e8 !important;
-}
-
-.recharts-text {
-  fill: var(--color-on-surface-variant) !important;
-  font-family: var(--font-body) !important;
-  font-size: 11px !important;
-}
-
-.recharts-legend-item-text {
-  color: var(--color-on-surface) !important;
-  font-family: var(--font-body) !important;
-  font-size: 12px !important;
-}
-
-.recharts-tooltip-wrapper .recharts-default-tooltip {
-  background: rgba(255, 255, 255, 0.9) !important;
-  backdrop-filter: blur(12px) !important;
-  border: none !important;
-  box-shadow: 0 4px 12px rgba(26, 28, 28, 0.08) !important;
-  border-radius: 6px !important;
-}
